@@ -4,6 +4,7 @@ Dịch nguyên một cuốn sách EPUB từ tiếng Anh sang tiếng Việt, **v
 
 **Tính năng chính**
 
+- **Một lệnh làm tất cả**: `python3 epub_translate.py run sach.epub` chạy từ kiểm tra model, lập bảng nhân vật, dịch, chấm, tự sửa đến đóng gói. Vẫn chạy được từng bước riêng.
 - Giữ nguyên định dạng sách: in nghiêng/đậm, liên kết chú thích, neo, ngắt trang, ảnh, bảng, thơ trong `<pre>`, mục lục (cả `nav.xhtml` lẫn `toc.ncx`).
 - Prompt văn phong văn học có **ví dụ sát chữ / văn học** và **bảng nhân vật, xưng hô** (anh/em, chàng/nàng, hắn, lão…). Có lệnh tạo bản nháp bảng nhân vật.
 - Gửi kèm đoạn dịch ngay trước để giữ mạch truyện và cách xưng hô.
@@ -11,7 +12,7 @@ Dịch nguyên một cuốn sách EPUB từ tiếng Anh sang tiếng Việt, **v
 - **Thẩm định bản dịch** (`review`): chấm 6 tiêu chí, liệt kê từng chỗ cần sửa kèm trích dẫn, tự kiểm tra xem giám khảo có đáng tin không, xuất báo cáo HTML theo tiêu chí và theo chương. Tuỳ chọn `--fix` viết lại các đoạn bị chê và chỉ thay khi bản mới thắng.
 - **Dừng lúc nào cũng được** (Ctrl+C, hết pin, máy ngủ). Chạy lại đúng lệnh là làm tiếp, cả khi dịch lẫn khi chấm.
 - Sửa tay bản dịch rồi đóng gói lại mà không cần gọi model. Có chế độ xuất song ngữ để soát.
-- Chỉ một file Python, phụ thuộc duy nhất là `lxml`. Có bộ test 28 bài chạy không cần model.
+- Chỉ một file Python, phụ thuộc duy nhất là `lxml`. Có bộ test 32 bài chạy không cần model.
 
 ---
 
@@ -392,7 +393,44 @@ Thinking  : ✓ đã tắt
 
 > **Luôn gõ `python3`.** macOS không có lệnh `python` (Apple bỏ Python 2 từ macOS 12.3); `python` chỉ tồn tại khi bạn đã kích hoạt một môi trường ảo. Script tự chuyển sang Python trong `.venv` nằm cạnh nó, nên không cần `source .venv/bin/activate`. Nếu đã kích hoạt thì `python3` vẫn chạy đúng.
 
-### 4.1. Quy trình khuyến nghị cho một cuốn sách
+### 4.1. Một lệnh làm tất cả: `run`
+
+```bash
+python3 epub_translate.py run ~/Desktop/sach.epub
+```
+
+Lệnh này chạy lần lượt 5 bước, đúng như khi bạn gõ từng lệnh lẻ:
+
+| Bước | Làm gì | Khi chạy lại |
+|---|---|---|
+| 1. Kiểm tra model | Như `check`: gọi thử, đo tốc độ, ước tính thời gian, đồng thời nạp model vào RAM. Không gọi được model thì **dừng ngay** | Luôn chạy (vài giây) |
+| 2. Bảng nhân vật | Chưa có `sach.glossary.md` cạnh file sách thì tạo bản nháp, **mở bằng trình soạn thảo và dừng chờ** bạn sửa, lưu, nhấn Enter | Có rồi thì dùng luôn |
+| 3. Dịch | Như `translate` | Chỉ dịch phần chưa có trong cache |
+| 4. Chấm + tự sửa | Như `review --fix`, xuất báo cáo HTML | Chỉ chấm đoạn trích mới / đã đổi; không thử sửa lại đoạn đã thử |
+| 5. Đóng gói | Như `build`, gồm cả các đoạn vừa được tự sửa | Luôn chạy (vài giây) |
+
+Vì mỗi bước lưu trạng thái ra đĩa, **dừng ở đâu cũng được** (Ctrl+C, đóng Terminal, hết pin): chạy lại đúng lệnh `run` là làm tiếp từ chỗ dừng.
+
+Các biến thể hay dùng:
+
+```bash
+# Chạy thử cả pipeline trên 40 đoạn để xem chất lượng trước khi chạy qua đêm
+python3 epub_translate.py run sach.epub --max-segments 40 --open
+
+# Chạy qua đêm, không dừng chờ sửa bảng nhân vật (dùng bản nháp)
+caffeinate -i python3 epub_translate.py run sach.epub --no-pause --open
+
+# Dùng bảng nhân vật có sẵn ở chỗ khác, model khác, bỏ bước chấm
+python3 epub_translate.py run sach.epub --glossary glossary.md --model qwen3:14b --no-review
+```
+
+Model mặc định của mọi lệnh là `gemma4:12b-it-qat`. Đổi cho một lần bằng `--model`, hoặc đổi luôn mặc định bằng biến môi trường (thêm vào `~/.zshrc`):
+
+```bash
+export EPUBTR_MODEL=qwen3:14b
+```
+
+### 4.2. Chạy từng bước (khi muốn kiểm soát từng khâu)
 
 ```bash
 M=gemma4:12b-it-qat
@@ -439,7 +477,28 @@ Trong khi chạy, mỗi lô in một dòng tiến độ:
 [   120/3,412] OEBPS/chapter03.xhtml   12.1 tok/s · đã chạy 14m02s · còn ~6h31m
 ```
 
-### 4.2. Tham chiếu lệnh
+### 4.3. Tham chiếu lệnh
+
+#### `run`: cả pipeline
+
+```bash
+python3 epub_translate.py run sach.epub [tuỳ chọn]
+```
+
+Nhận mọi tuỳ chọn của `translate` (model, giới hạn token, `--max-segments`, `-o`, `--bilingual`, `--title`, `--drop-fonts`…) cộng thêm:
+
+| Tuỳ chọn | Mặc định | Ý nghĩa |
+|---|---|---|
+| `--glossary` | `<tên sách>.glossary.md` | Bảng nhân vật. Chưa có thì tự tạo bản nháp |
+| `--no-glossary` | | Không dùng / không tạo bảng nhân vật |
+| `--no-pause` | | Không dừng chờ sửa bản nháp bảng nhân vật. Chạy không trong Terminal (vd. qua lịch hẹn) thì tự không dừng |
+| `--chars` | `40000` | Số ký tự đầu sách để lập bảng nhân vật |
+| `--no-review` | | Bỏ bước chấm (và tự sửa) |
+| `--no-fix` | | Chấm nhưng không tự viết lại đoạn bị chê |
+| `--max-fixes`, `--no-calibration`, `--report` | | Như `review` |
+| `--open` | | Mở báo cáo chấm khi xong |
+
+Mã thoát: 0 khi xong; 1 khi không gọi được model hay lỗi model giữa chừng; 130 khi bị dừng (Ctrl+C).
 
 #### `info`: xem cấu trúc sách
 
@@ -455,7 +514,7 @@ In danh sách file theo thứ tự đọc, số đoạn và ký tự từng file
 python3 epub_translate.py check [sach.epub] --model TÊN [tuỳ chọn model]
 ```
 
-Dịch một câu mẫu có thẻ định dạng, rồi báo: kết nối được không, model có giữ đúng thẻ không, có đang bật thinking không, tốc độ token/s. Nếu truyền sách vào thì ước tính thời gian dịch cuốn đó. Lệnh trả mã thoát 1 nếu có vấn đề.
+Dịch một câu mẫu có thẻ định dạng, rồi báo: kết nối được không, model có giữ đúng thẻ không, có đang bật thinking không, tốc độ token/s. Nếu truyền sách vào thì ước tính thời gian dịch cuốn đó. Mã thoát: 0 nếu ổn, 1 nếu câu thử chưa đạt (sai thẻ, trống), 2 nếu không gọi được model.
 
 #### `characters`: tạo bản nháp bảng nhân vật
 
@@ -480,7 +539,7 @@ python3 epub_translate.py translate sach.epub --model TÊN [tuỳ chọn]
 
 | Tuỳ chọn | Mặc định | Ý nghĩa |
 |---|---|---|
-| `--model` | (bắt buộc) | Tên model, ví dụ `gemma4:12b-it-qat` |
+| `--model` | `gemma4:12b-it-qat` | Tên model. Đổi mặc định bằng biến môi trường `EPUBTR_MODEL` |
 | `--backend` | `ollama` | `ollama` hoặc `openai` (LM Studio, mlx_lm, llama.cpp) |
 | `--base-url` | `http://localhost:11434` / `http://localhost:1234/v1` | Địa chỉ server |
 | `--glossary` | | File bảng nhân vật và thuật ngữ |
@@ -727,7 +786,7 @@ Bộ test **không cần model và không cần mạng**:
 2. `tests/mock_server.py` là server giả lập Ollama/OpenAI, "dịch" bằng cách viết hoa và cố ý gây lỗi: HTTP 500 ở lượt đầu, gộp đoạn, mất thẻ, chèn chữ Trung, trả rỗng, chèn `<think>`, lời mở đầu, khối ```` ``` ````. Với `review`, nó đóng vai giám khảo: trả JSON bẩn (bọc ```` ``` ````, dấu phẩy thừa, câu trả lời hỏng), trích dẫn sai nguyên văn, dùng tên tiêu chí có dấu, trả HTTP 400 khi nhận `response_format`, và so sánh A/B có đoạn chuộng bản mới, có đoạn chuộng bản cũ.
 3. `tests/run_tests.py` chạy mọi lệnh rồi kiểm tra từng chi tiết của EPUB và báo cáo đầu ra, gồm Ctrl+C giữa chừng (kèm giải phóng model), chạy lại không gọi model thừa, `--fix`, `--undo-fixes`.
 
-Kết quả mong đợi: `28/28 bài kiểm tra đạt.` Đặt `VERBOSE=1` để xem traceback khi có lỗi.
+Kết quả mong đợi: `32/32 bài kiểm tra đạt.` Đặt `VERBOSE=1` để xem traceback khi có lỗi.
 
 ---
 

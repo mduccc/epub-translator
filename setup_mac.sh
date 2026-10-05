@@ -67,18 +67,21 @@ say "Dịch thử một câu để kiểm tra"
 # Gọi bằng python3 hệ thống: script tự chuyển sang .venv — đúng cách bạn sẽ dùng hằng ngày.
 python3 epub_translate.py check --model "$MODEL" || true
 
+# Model mặc định của script là gemma4:12b-it-qat; model khác thì nhắc thêm --model.
+M=""
+[ "$MODEL" = "gemma4:12b-it-qat" ] || M=" --model $MODEL"
+
 cat <<EOF
 
-✓ Cài đặt xong. Các bước tiếp theo (xem README.md) — dùng python3, không cần kích hoạt .venv:
+✓ Cài đặt xong. Dùng python3, không cần kích hoạt .venv (xem README.md):
 
-  python3 epub_translate.py info        sach.epub
-  python3 epub_translate.py characters  sach.epub --model $MODEL -o glossary.md
+  # Một lệnh làm tất cả: kiểm tra → bảng nhân vật → dịch → chấm + tự sửa → đóng gói.
+  # Dừng lúc nào cũng được; chạy lại đúng lệnh là làm tiếp.
+  caffeinate -i python3 epub_translate.py run sach.epub$M --open
 
-  # dịch THỬ 40 đoạn để xem chất lượng (mỗi lần chạy chỉ dịch thêm 40 đoạn rồi dừng):
-  python3 epub_translate.py translate   sach.epub --model $MODEL --glossary glossary.md --max-segments 40
+  # Chạy thử cả pipeline trên 40 đoạn trước:
+  python3 epub_translate.py run sach.epub$M --max-segments 40 --open
 
-  # dịch CẢ CUỐN (không có --max-segments; Ctrl+C để dừng, chạy lại để dịch tiếp):
-  caffeinate -i python3 epub_translate.py translate sach.epub --model $MODEL --glossary glossary.md
-
-  python3 epub_translate.py review      sach.epub --model $MODEL --glossary glossary.md --open
+  # Hoặc chạy từng bước: info, check, characters, translate, review, build
+  python3 epub_translate.py --help
 EOF

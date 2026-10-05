@@ -154,7 +154,7 @@ def _():
         out = run("check", "--model", "t", "--base-url", url, "--keep-loaded")
         assert unloads(log_path)[-1]["keep_alive"] == "30m", out
         n = len(unloads(log_path))
-        run("check", "--model", "missing-model", "--base-url", url, expect=1)
+        run("check", "--model", "missing-model", "--base-url", url, expect=2)
         run("info", BOOK)
         assert len(unloads(log_path)) == n, "model không nạp được thì không có gì để giải phóng"
     finally:
@@ -462,6 +462,87 @@ def _():
 
 
 rv_server.terminate()
+
+
+# ----------------------------------------------------------------- run: cả pipeline một lệnh
+
+RUN_DIR = os.path.join(TMP, "run")
+os.makedirs(RUN_DIR)
+RUN_BOOK = os.path.join(RUN_DIR, "sach.epub")
+shutil.copy(BOOK, RUN_BOOK)
+RUN_LOG = os.path.join(TMP, "run-mock.log")
+run_server, RUN_URL = start_server(log_path=RUN_LOG)
+
+
+def prompts_with(text):
+    """Số lượt gọi có prompt chứa text (mock ghi 200 ký tự đầu + 400 ký tự cuối)."""
+    return sum(1 for x in chat_lines(RUN_LOG) if text in x["head"] or text in x["user"])
+
+
+def judge_calls():
+    """Lượt chấm sách (không tính lượt kiểm tra giám khảo có nhân vật Anna)."""
+    return sum(1 for x in chat_lines(RUN_LOG)
+               if x["head"].startswith("Thẩm định") and "Anna" not in x["user"])
+
+
+@test("run: một lệnh chạy đủ kiểm tra → bảng nhân vật → dịch → chấm + tự sửa → đóng gói")
+def _():
+    out = run("run", RUN_BOOK, "--base-url", RUN_URL, "--no-pause")
+    for n, title in enumerate(["Kiểm tra model", "Bảng nhân vật", "Dịch", "Chấm + tự sửa",
+                               "Đóng gói"], 1):
+        assert f"Bước {n}/5 · {title}" in out, (title, out)
+    gl = os.path.join(RUN_DIR, "sach.glossary.md")
+    assert os.path.exists(gl) and "**Mara**" in open(gl, encoding="utf-8").read()
+    assert "Không dừng chờ" in out, "không phải Terminal → không được dừng chờ"
+    assert "✓ thay bản mới" in out, out
+    for name in ("sach.vi.epub", "sach.vi-cache.jsonl", "sach.vi-review.jsonl", "sach.vi-review.html"):
+        assert os.path.exists(os.path.join(RUN_DIR, name)), name
+    ch1 = read_zip(os.path.join(RUN_DIR, "sach.vi.epub"), "OEBPS/ch1.xhtml").decode("utf-8")
+    assert "(ĐÃ SỬA)" in ch1, "bước đóng gói cuối phải gồm các đoạn đã được --fix thay"
+    assert "══ Xong" in out and "Thời gian" in out, out
+    assert all(x["model"] == "gemma4:12b-it-qat" for x in chat_lines(RUN_LOG)), "model mặc định"
+    assert unloads(RUN_LOG)[-1]["keep_alive"] == 0, "phải giải phóng model khi xong"
+    assert out.count("Đã giải phóng model") == 1 and len(unloads(RUN_LOG)) == 1, "chỉ gỡ model một lần"
+    assert "Chạy `build`" not in out, "run tự đóng gói, không khuyên chạy build"
+
+
+@test("run chạy lại: dùng bảng nhân vật có sẵn, không dịch / chấm / sửa lại phần đã xong")
+def _():
+    n_char = prompts_with("Liệt kê MỌI nhân vật")
+    n_judge = judge_calls()
+    n_fix = prompts_with("BẢN DỊCH CẦN SỬA")
+    assert n_char == 1 and n_judge > 0 and n_fix > 0, (n_char, n_judge, n_fix)
+    out = run("run", RUN_BOOK, "--base-url", RUN_URL, "--no-pause")
+    assert "Dùng bảng có sẵn" in out, out
+    assert prompts_with("Liệt kê MỌI nhân vật") == n_char
+    assert judge_calls() == n_judge, (judge_calls(), n_judge)
+    assert prompts_with("BẢN DỊCH CẦN SỬA") == n_fix
+    assert "lần này dịch 1 " in out, "chỉ còn đoạn hỏng (NEVER) được thử lại"
+
+
+@test("run --max-segments --no-review --no-glossary: chạy thử gọn, bỏ đúng các bước")
+def _():
+    d = os.path.join(TMP, "run2")
+    os.makedirs(d)
+    book = os.path.join(d, "b.epub")
+    shutil.copy(BOOK, book)
+    out = run("run", book, "--base-url", RUN_URL, "--max-segments", "6", "--no-review",
+              "--no-glossary", "--model", "khac")
+    assert "Bước 4/4 · Đóng gói" in out and "Chấm" not in out.split("Model:")[1].split("\n")[0], out
+    assert "Bỏ qua (--no-glossary)" in out and "Chế độ DỊCH THỬ" in out, out
+    assert not os.path.exists(os.path.join(d, "b.glossary.md"))
+    assert not os.path.exists(os.path.join(d, "b.vi-review.html"))
+    assert chat_lines(RUN_LOG)[-1]["model"] == "khac"
+
+
+@test("run dừng sớm, báo rõ khi không gọi được model")
+def _():
+    out = run("run", RUN_BOOK, "--base-url", RUN_URL, "--model", "missing-model", "--no-pause",
+              expect=1)
+    assert "Không gọi được model — dừng" in out and "Bước 2/" not in out, out
+
+
+run_server.terminate()
 server.terminate()
 ok = sum(1 for _, passed, _ in RESULTS if passed)
 print(f"\n{ok}/{len(RESULTS)} bài kiểm tra đạt.")

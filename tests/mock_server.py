@@ -168,10 +168,12 @@ class H(BaseHTTPRequestHandler):
             text, truncated = "\n".join(rows[: idx + 1]), True
         if LOG:
             with open(LOG, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"path": self.path, "single": single, "think": req.get("think"),
+                f.write(json.dumps({"path": self.path, "model": req.get("model"),
+                                    "single": single, "think": req.get("think"),
                                     "schema": "format" in req,
                                     "options": req.get("options"), "max_tokens": req.get("max_tokens"),
-                                    "user": user[-400:]}, ensure_ascii=False) + "\n")
+                                    "head": user[:200], "user": user[-400:]},
+                                   ensure_ascii=False) + "\n")
         if self.path.startswith("/api/chat"):
             resp = {"message": {"role": "assistant", "content": text}, "eval_count": len(text) // 3,
                     "eval_duration": int(0.05e9), "done_reason": "length" if truncated else "stop"}

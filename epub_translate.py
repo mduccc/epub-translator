@@ -9,6 +9,9 @@ Phụ thuộc duy nhất ngoài thư viện chuẩn: lxml (./setup_mac.sh cài v
 .venv nên chỉ cần gõ `python3`, không cần kích hoạt môi trường ảo).
 
 Các lệnh:
+  run         CẢ PIPELINE trong một lệnh: kiểm tra → bảng nhân vật → dịch → chấm + tự sửa →
+              đóng gói. Chạy lại đúng lệnh để làm tiếp từ chỗ dừng.
+  ── hoặc chạy từng bước ──
   info        Xem cấu trúc sách, số đoạn, ước tính thời gian dịch
   check       Kiểm tra kết nối model, khả năng giữ định dạng, đo tốc độ
   characters  Quét đầu sách, tạo bản nháp bảng nhân vật / xưng hô
@@ -19,6 +22,8 @@ Các lệnh:
   build       Đóng gói lại EPUB từ cache, không gọi model (sau khi sửa tay)
 
 Ví dụ:
+  python3 epub_translate.py run sach.epub                       # làm tất cả
+  python3 epub_translate.py run sach.epub --max-segments 40     # chạy thử cả pipeline
   python3 epub_translate.py info sach.epub
   python3 epub_translate.py check --model gemma4:12b-it-qat
   python3 epub_translate.py characters sach.epub --model gemma4:12b-it-qat -o glossary.md
@@ -37,6 +42,7 @@ import re
 import shutil
 import signal
 import sys
+import subprocess
 import tempfile
 import time
 import unicodedata
@@ -774,8 +780,17 @@ _LLMS: list = []          # mọi kết nối model đã tạo trong lần chạ
 
 
 def release_models(keep: bool = False) -> None:
+    """Gỡ mỗi model một lần (lệnh `run` tạo nhiều kết nối tới cùng một model)."""
+    done: set = set()
     for llm in _LLMS:
+        if not llm.used:
+            continue
+        key = (llm.backend, llm.base, llm.model)
+        if key in done:
+            llm.used = False
+            continue
         llm.release(keep)
+        done.add(key)
 
 
 class LLM:
@@ -2175,6 +2190,15 @@ def default_out(epub: str, bilingual: bool) -> str:
     return os.path.splitext(epub)[0] + (".en-vi.epub" if bilingual else ".vi.epub")
 
 
+def default_glossary(epub: str) -> str:
+    """Bảng nhân vật riêng cho từng cuốn, nằm cạnh file sách."""
+    return os.path.splitext(epub)[0] + ".glossary.md"
+
+
+# Model mặc định cho mọi lệnh (đổi bằng --model, hoặc biến môi trường EPUBTR_MODEL).
+DEFAULT_MODEL = os.environ.get("EPUBTR_MODEL") or "gemma4:12b-it-qat"
+
+
 def unique_segments(docs: list[Doc], cache: Cache, redo: list[str] | None = None) -> list[Segment]:
     seen: set[str] = set()
     out = []
@@ -2242,7 +2266,7 @@ def cmd_check(args) -> int:
         got = tr._ask([seg], args.temperature)
     except LLMError as e:
         log(f"\n✗ Lỗi: {e}")
-        return 1
+        return 2                       # 2 = không gọi được model (khác 1 = trả lời chưa chuẩn)
     wall = time.time() - t0
     vi = got.get(1)
     log("")
@@ -2271,12 +2295,13 @@ def cmd_check(args) -> int:
         book = Book(args.epub)
         try:
             docs = extract_docs(book)
-            pending = unique_segments(docs, Cache(default_cache(args.epub)))
+            pending = unique_segments(docs, Cache(getattr(args, "cache", None)
+                                                  or default_cache(args.epub)))
         finally:
             book.close()
         est = int(sum(len(plain(s.src)) for s in pending) * 0.45)
-        log(f"Ước tính  : {os.path.basename(args.epub)} cần ~{est:,} token → khoảng "
-            f"{fmt_dur(est / tps)} ở tốc độ này (chưa tính máy nóng hạ xung)")
+        log(f"Ước tính  : {os.path.basename(args.epub)} còn {len(pending):,} đoạn, ~{est:,} token → "
+            f"khoảng {fmt_dur(est / tps)} ở tốc độ này (chưa tính máy nóng hạ xung)")
     return 0 if vi and tags_ok else 1
 
 
@@ -2293,9 +2318,6 @@ def cmd_review(args) -> int:
     if not os.path.exists(cache_path):
         log(f"Chưa có bản dịch: không thấy {cache_path}. Chạy lệnh `translate` trước.")
         return 1
-    if not args.undo_fixes and not args.model:
-        log("Thiếu --model (giám khảo là chính model đã dịch, vd: --model gemma4:12b-it-qat).")
-        return 2
     store_path, report_path = review_paths(cache_path, args.report)
     cache = Cache(cache_path)
     store = ReviewStore(store_path)
@@ -2350,7 +2372,7 @@ def cmd_review(args) -> int:
         print_review_summary(data, report_path)
         if failed:
             log(f"  ! {failed} đoạn trích không đọc được kết quả chấm — chạy lại lệnh để thử lại.")
-        if overall_before is not None:
+        if overall_before is not None and not getattr(args, "in_run", False):
             log("Bản dịch mới đã ghi vào cache. Chạy `build` (kèm các tuỳ chọn đã dùng khi dịch) "
                 "để đóng gói lại EPUB; `review --undo-fixes` để hoàn tác.")
         if args.open:
@@ -2531,14 +2553,133 @@ def run_translation(args, use_llm: bool) -> int:
         book.close()
 
 
+def pause_for_glossary(path: str, args) -> None:
+    """Dừng chờ người dùng sửa bản nháp bảng nhân vật (chỉ khi chạy trong Terminal)."""
+    log("")
+    log(f"Bản nháp bảng nhân vật: {path}")
+    log("Nên sửa trước khi dịch: giới tính, quan hệ, cặp xưng hô (mẫu: glossary.example.md).")
+    if args.no_pause or not sys.stdin.isatty():
+        log("(Không dừng chờ — dịch luôn với bản nháp. Sửa sau thì dùng `translate --redo`.)")
+        return
+    if sys.platform == "darwin":
+        subprocess.run(["open", "-t", path], check=False)   # mở bằng trình soạn thảo mặc định
+    try:
+        input("Sửa xong, LƯU file rồi nhấn Enter để dịch tiếp "
+              "(Ctrl+C để dừng — lần sau chạy lại `run` sẽ dịch luôn): ")
+    except EOFError:
+        pass
+
+
+def cmd_run(args) -> int:
+    """Cả pipeline trong một lệnh: kiểm tra → bảng nhân vật → dịch → chấm (+ tự sửa) → đóng gói.
+
+    Mỗi bước lưu trạng thái ra đĩa (bảng nhân vật, cache bản dịch, kết quả chấm), nên chạy lại
+    đúng lệnh này sẽ bỏ qua phần đã xong và làm tiếp từ chỗ dừng."""
+    if not os.path.isfile(args.epub):
+        log(f"Không tìm thấy file: {args.epub}")
+        return 1
+    glossary = args.glossary or default_glossary(args.epub)
+    cache = args.cache or default_cache(args.epub)
+    out = args.output or default_out(args.epub, args.bilingual)
+    _, report_path = review_paths(cache, args.report)
+    use_review = not args.no_review
+    steps = ["Kiểm tra model", "Bảng nhân vật", "Dịch"] + (
+        ["Chấm" + (" + tự sửa" if not args.no_fix else "")] if use_review else []) + ["Đóng gói"]
+    timings: list[tuple[str, float]] = []
+
+    def sub(**over):
+        """Bản sao tham số cho từng bước (mỗi lệnh con đọc tên tham số của riêng nó)."""
+        ns = argparse.Namespace(**vars(args))
+        vars(ns).update(over)
+        return ns
+
+    def header(title: str) -> float:
+        n = steps.index(title) + 1
+        log("")
+        log(f"══ Bước {n}/{len(steps)} · {title} " + "═" * max(3, 50 - len(title)))
+        return time.time()
+
+    log(f"Sách : {args.epub}")
+    log(f"Model: {args.model} ({args.backend}) · các bước: " + " → ".join(steps))
+    try:
+        # 1. Kiểm tra: phát hiện sớm Ollama chưa chạy / sai tên model, đồng thời nạp model.
+        t = header("Kiểm tra model")
+        rc = cmd_check(sub(cache=cache, glossary=glossary if os.path.exists(glossary) else None))
+        timings.append(("kiểm tra", time.time() - t))
+        if rc == 2:
+            log("✗ Không gọi được model — dừng. Sửa lỗi ở trên rồi chạy lại.")
+            return 1
+        if rc == 1:
+            log("! Câu thử chưa đạt; vẫn tiếp tục — đoạn lỗi sẽ được dịch lại tự động.")
+
+        # 2. Bảng nhân vật: có sẵn thì dùng, chưa có thì tạo bản nháp và dừng chờ sửa.
+        t = header("Bảng nhân vật")
+        gl: str | None = glossary
+        if args.no_glossary:
+            log("Bỏ qua (--no-glossary).")
+            gl = None
+        elif os.path.exists(glossary):
+            log(f"Dùng bảng có sẵn: {glossary}")
+        elif cmd_characters(sub(output=glossary)) == 0:
+            timings.append(("bảng nhân vật", time.time() - t))
+            pause_for_glossary(glossary, args)
+            t = None
+        else:
+            log("! Không tạo được bảng nhân vật — dịch tiếp mà không có bảng.")
+            gl = None
+        if t is not None:
+            timings.append(("bảng nhân vật", time.time() - t))
+
+        # 3. Dịch (làm tiếp từ cache).
+        t = header("Dịch")
+        rc = run_translation(sub(glossary=gl, output=out, cache=cache), use_llm=True)
+        timings.append(("dịch", time.time() - t))
+        if rc != 0:
+            return rc
+
+        # 4. Chấm (+ tự sửa). Lỗi ở bước này không chặn việc đóng gói bản dịch.
+        if use_review:
+            t = header(steps[3])
+            rc = cmd_review(sub(glossary=gl, cache=cache, report=report_path, fix=not args.no_fix,
+                                max_chunks=0, undo_fixes=False, open=False, in_run=True))
+            timings.append(("chấm", time.time() - t))
+            if rc == 130:
+                return 130
+            if rc != 0:
+                log("! Bước chấm gặp lỗi — vẫn đóng gói bản dịch hiện có.")
+
+        # 5. Đóng gói lần cuối (gồm cả các đoạn vừa được --fix thay).
+        t = header("Đóng gói")
+        rc = run_translation(sub(glossary=gl, output=out, cache=cache), use_llm=False)
+        timings.append(("đóng gói", time.time() - t))
+    except KeyboardInterrupt:
+        log("\nĐã dừng. Mọi tiến độ đã lưu — chạy lại đúng lệnh `run` để làm tiếp từ chỗ dừng.")
+        return 130
+
+    log("")
+    log("══ Xong " + "═" * 52)
+    log(f"  Bản dịch      : {out}")
+    if use_review and os.path.exists(report_path):
+        log(f"  Báo cáo chấm  : {report_path}")
+    if gl:
+        log(f"  Bảng nhân vật : {gl}")
+    log("  Thời gian     : " + " · ".join(f"{name} {fmt_dur(s)}" for name, s in timings))
+    if args.open and use_review and os.path.exists(report_path):
+        import webbrowser
+        webbrowser.open("file://" + os.path.abspath(report_path))
+    return rc
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description="Dịch EPUB Anh → Việt bằng LLM chạy trên máy (Ollama / LM Studio / mlx_lm).",
         formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    def llm_opts(p, required=True):
-        p.add_argument("--model", required=required, help="tên model, vd: gemma4:12b-it-qat (Ollama)")
+    def llm_opts(p):
+        p.add_argument("--model", default=DEFAULT_MODEL,
+                       help=f"tên model (mặc định {DEFAULT_MODEL}; đổi mặc định bằng biến "
+                            "môi trường EPUBTR_MODEL)")
         p.add_argument("--backend", choices=["ollama", "openai"], default="ollama",
                        help="ollama (mặc định) | openai = LM Studio, mlx_lm.server, llama.cpp")
         p.add_argument("--base-url", help="mặc định: http://localhost:11434 (ollama), "
@@ -2572,6 +2713,32 @@ def main(argv=None) -> int:
         p.add_argument("--keep-id", action="store_true",
                        help="giữ nguyên mã định danh sách (mặc định đổi để khỏi trùng bản gốc)")
 
+    p = sub.add_parser("run", help="CHẠY CẢ PIPELINE: kiểm tra → bảng nhân vật → dịch → chấm + "
+                                   "tự sửa → đóng gói (chạy lại để làm tiếp)")
+    p.add_argument("epub")
+    llm_opts(p)
+    out_opts(p)
+    p.add_argument("--glossary", help="bảng nhân vật (mặc định: <tên sách>.glossary.md cạnh "
+                                      "file sách; chưa có thì tự tạo bản nháp)")
+    p.add_argument("--prompt-file", help="file thay phần PHONG CÁCH của prompt mặc định")
+    p.add_argument("--no-glossary", action="store_true", help="không dùng / không tạo bảng nhân vật")
+    p.add_argument("--no-pause", action="store_true",
+                   help="không dừng chờ sửa bản nháp bảng nhân vật (chạy qua đêm)")
+    p.add_argument("--chars", type=int, default=40000,
+                   help="số ký tự đầu sách để lập bảng nhân vật (40000)")
+    p.add_argument("--max-segments", type=int, default=0,
+                   help="chỉ dịch N đoạn chưa có trong cache — chạy thử cả pipeline")
+    p.add_argument("--batch-chars", type=int, default=1800, help="số ký tự gốc mỗi lượt gọi (1800)")
+    p.add_argument("--batch-max", type=int, default=10, help="số đoạn tối đa mỗi lượt gọi (10)")
+    p.add_argument("--context", type=int, default=2, help="số đoạn trước gửi kèm làm ngữ cảnh (2)")
+    p.add_argument("--retries", type=int, default=2, help="số lần dịch lại một đoạn lỗi (2)")
+    p.add_argument("--no-review", action="store_true", help="bỏ bước chấm (và tự sửa)")
+    p.add_argument("--no-fix", action="store_true", help="chấm nhưng không tự viết lại đoạn bị chê")
+    p.add_argument("--max-fixes", type=int, default=0, help="tự sửa tối đa N đoạn")
+    p.add_argument("--no-calibration", action="store_true", help="bỏ bước kiểm tra giám khảo")
+    p.add_argument("--report", help="file báo cáo chấm (mặc định: <tên>.vi-review.html)")
+    p.add_argument("--open", action="store_true", help="mở báo cáo trong trình duyệt khi xong")
+
     p = sub.add_parser("info", help="xem cấu trúc sách và ước tính thời gian")
     p.add_argument("epub")
     p.add_argument("--cache")
@@ -2592,7 +2759,7 @@ def main(argv=None) -> int:
     p = sub.add_parser("review", help="chấm bản dịch theo 6 tiêu chí bằng chính model, "
                                       "xuất báo cáo HTML")
     p.add_argument("epub")
-    llm_opts(p, required=False)
+    llm_opts(p)
     p.add_argument("--glossary", help="bảng nhân vật / thuật ngữ — căn cứ chấm xưng hô")
     p.add_argument("--prompt-file", help="phong cách dịch dùng khi --fix viết lại")
     p.add_argument("--cache", help="file cache bản dịch (mặc định: <tên>.vi-cache.jsonl)")
@@ -2636,6 +2803,8 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     install_signal_handlers()
     try:
+        if args.cmd == "run":
+            return cmd_run(args)
         if args.cmd == "info":
             return cmd_info(args)
         if args.cmd == "check":
