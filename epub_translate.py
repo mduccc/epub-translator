@@ -2467,14 +2467,19 @@ def run_translation(args, use_llm: bool) -> int:
         docs = extract_docs(book)
         total = sum(len(d.segs) for d in docs)
         pending = unique_segments(docs, cache, getattr(args, "redo", None))
+        limited = False          # --max-segments cắt bớt việc của lần chạy này
         if use_llm:
-            if args.max_segments:
+            if args.max_segments and len(pending) > args.max_segments:
                 pending = pending[:args.max_segments]
+                limited = True
             system = build_system_prompt(args.prompt_file, args.glossary)
             log(f"Sách: {book.meta('title') or os.path.basename(args.epub)}")
             cached = sum(1 for d in docs for s in d.segs if s.key in cache)
             log(f"{total:,} đoạn · đã có trong cache {cached:,} · "
                 f"lần này dịch {len(pending):,} · model {args.model} ({args.backend})")
+            if limited:
+                log(f"Chế độ DỊCH THỬ: chỉ dịch {args.max_segments} đoạn rồi dừng (--max-segments). "
+                    "Bỏ tuỳ chọn này để dịch cả cuốn.")
             if pending:
                 translator = Translator(LLM(args), system, args)
                 batches = make_batches(pending, args.batch_chars, args.batch_max)
@@ -2503,7 +2508,15 @@ def run_translation(args, use_llm: bool) -> int:
         if stats.get("report"):
             log(f"  Danh sách đoạn nên soát: {stats['report']}")
         if stats["missing"] and use_llm:
-            log("  Chạy lại đúng lệnh này để dịch tiếp phần còn lại.")
+            failed = len(translator.failed) if translator else 0
+            if limited:
+                log(f"  Đây là bản DỊCH THỬ ({args.max_segments} đoạn mỗi lần, do --max-segments). "
+                    "Để dịch hết phần còn lại, chạy lại lệnh và BỎ --max-segments.")
+            elif failed:
+                log(f"  {failed} đoạn dịch lỗi (xem {stats.get('report', 'báo cáo')}). "
+                    "Chạy lại đúng lệnh này để thử dịch lại các đoạn đó.")
+            else:
+                log("  Chạy lại đúng lệnh này để dịch tiếp phần còn lại.")
         return 0
     except KeyboardInterrupt:
         log("\nĐã dừng. Tiến độ đã lưu trong cache — chạy lại đúng lệnh để dịch tiếp, "

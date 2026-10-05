@@ -403,7 +403,8 @@ python3 epub_translate.py info sach.epub
 # 2. Tạo bản nháp bảng nhân vật từ ~40.000 ký tự đầu sách, rồi MỞ RA SỬA (mục 6)
 python3 epub_translate.py characters sach.epub --model $M -o glossary.md
 
-# 3. Dịch thử 40 đoạn và chấm thử, đọc sach.vi.epub + mở báo cáo
+# 3. Dịch THỬ 40 đoạn và chấm thử, đọc sach.vi.epub + mở báo cáo.
+#    --max-segments chỉ để thử: mỗi lần chạy dịch thêm đúng 40 đoạn rồi dừng.
 python3 epub_translate.py translate sach.epub --model $M --glossary glossary.md --max-segments 40
 python3 epub_translate.py review    sach.epub --model $M --glossary glossary.md --open
 
@@ -495,7 +496,7 @@ python3 epub_translate.py translate sach.epub --model TÊN [tuỳ chọn]
 | `--think-budget` | `4096` | Token cộng thêm cho phần suy nghĩ khi `--think` |
 | `--keep-loaded` | tắt | Giữ model trong RAM thêm 30 phút khi xong. Mặc định: giải phóng ngay |
 | `--timeout` | `900` | Giây chờ tối đa mỗi lượt gọi |
-| `--max-segments` | | Chỉ dịch N đoạn chưa có trong cache, để thử |
+| `--max-segments` | | **Chỉ để thử**: dịch N đoạn chưa có trong cache rồi dừng. Dịch cả cuốn thì bỏ tuỳ chọn này |
 | `--redo TÊN` | | Dịch lại các file có tên chứa TÊN dù đã có cache. Dùng nhiều lần được |
 | `-o`, `--output` | `sach.vi.epub` | File đầu ra |
 | `--cache` | `sach.vi-cache.jsonl` | File cache |
@@ -689,6 +690,7 @@ Một dòng trong cache trông như sau:
 
 | Hiện tượng | Cách xử lý |
 |---|---|
+| Mỗi lần chạy chỉ dịch được một ít rồi dừng | Bạn đang dùng `--max-segments` (chế độ dịch thử). Bỏ tuỳ chọn này để dịch cả cuốn; phần đã dịch vẫn giữ trong cache |
 | `Không kết nối được tới server model` | Mở app Ollama (`open -a Ollama`) hoặc bật server trong LM Studio |
 | `HTTP 404 … not found` | Sai tên model. Xem `ollama list`, hoặc `ollama pull <tên>` |
 | Rất chậm, Memory Pressure đỏ | Đóng app khác, hoặc dùng model nhỏ hơn |

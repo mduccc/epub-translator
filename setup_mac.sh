@@ -73,6 +73,12 @@ cat <<EOF
 
   python3 epub_translate.py info        sach.epub
   python3 epub_translate.py characters  sach.epub --model $MODEL -o glossary.md
+
+  # dịch THỬ 40 đoạn để xem chất lượng (mỗi lần chạy chỉ dịch thêm 40 đoạn rồi dừng):
   python3 epub_translate.py translate   sach.epub --model $MODEL --glossary glossary.md --max-segments 40
+
+  # dịch CẢ CUỐN (không có --max-segments; Ctrl+C để dừng, chạy lại để dịch tiếp):
+  caffeinate -i python3 epub_translate.py translate sach.epub --model $MODEL --glossary glossary.md
+
   python3 epub_translate.py review      sach.epub --model $MODEL --glossary glossary.md --open
 EOF

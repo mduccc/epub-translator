@@ -201,6 +201,8 @@ def _():
     out = run("translate", BOOK, *LLM, "--max-segments", "5")
     assert len(lines(CACHE)) == 5, out
     assert "11/40 đoạn đã có bản dịch" in out, out
+    assert "Chế độ DỊCH THỬ" in out and "BỎ --max-segments" in out, "phải báo rõ đây là dịch thử"
+    assert "Chạy lại đúng lệnh này để dịch tiếp" not in out, "không được khuyên chạy lại y nguyên"
 
 
 @test("translate: chạy tiếp phần còn lại, xử lý gộp đoạn / mất thẻ / lẫn chữ Trung / đoạn hỏng")
