@@ -1,0 +1,22 @@
+# --- Môi trường Python ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# --- macOS ---
+.DS_Store
+
+# --- Sách nguồn và mọi thứ epub_translate.py sinh ra ---
+# sách gốc + bản dịch (sach.vi.epub, sach.en-vi.epub) + file tạm khi đóng gói
+*.epub
+*.epub.part
+# cache bản dịch (sach.vi-cache.jsonl), kết quả chấm (sach.vi-review.jsonl), cache tự đặt tên
+*.jsonl
+# báo cáo
+*.report.txt
+*-review.html
+# bảng nhân vật / văn phong riêng cho từng cuốn (glossary.example.md vẫn được theo dõi)
+glossary.md
+glossary-*.md
+style.md
