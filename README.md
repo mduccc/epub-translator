@@ -16,6 +16,8 @@ Script cài `lxml` vào `.venv`, cài Ollama và tải model mặc định `gemm
 caffeinate -i python3 epub_translate.py run ~/Desktop/sach.epub --open
 ```
 
+Thay `~/Desktop/sach.epub` bằng đường dẫn tới file sách của bạn; các lệnh bên dưới viết tắt là `sach.epub`, và các file sinh ra mang tên theo sách (`sach.vi.epub`…).
+
 `run` kiểm tra model, tạo bảng nhân vật, dịch, chấm và tự sửa, rồi đóng gói. Lần đầu, lệnh dừng lại để bạn sửa bảng nhân vật. Có thể dừng bất cứ lúc nào bằng Ctrl+C; chạy lại đúng lệnh để làm tiếp.
 
 ```bash
