@@ -76,7 +76,21 @@ Chính model đã dịch đóng vai biên tập viên, chấm từng trang theo 
 
 Model tự chấm bài mình thường dễ dãi. Vì vậy trước khi chấm, nó phải chấm 4 đoạn đã biết đáp án; báo cáo cho biết nó bắt được bao nhiêu lỗi cài sẵn. Hãy dùng báo cáo để biết **nên soát chỗ nào**, đừng tin tuyệt đối vào con số.
 
-Không ưng các đoạn được tự sửa: `review sach.epub --undo-fixes` rồi `build sach.epub`.
+### Sửa theo báo cáo
+
+`run` tự sửa và đóng gói sẵn. Nếu chạy `review` riêng, sửa theo hai bước:
+
+```bash
+# 1. Viết lại các đoạn bị chê; chỉ thay khi bản mới thắng cả hai lượt so sánh A/B
+python3 epub_translate.py review sach.epub --glossary sach.glossary.md --fix --open
+
+# 2. Đóng gói lại EPUB (bắt buộc — --fix chỉ ghi vào cache)
+python3 epub_translate.py build sach.epub
+```
+
+- Kết quả chấm cũ được dùng lại, chỉ chấm lại các đoạn đã sửa.
+- Mỗi đoạn tốn 3 lượt gọi model (viết lại + 2 lần so sánh); thử trước với `--max-fixes 50`. Đoạn đã thử sẽ không thử lại, nên chạy nhiều lần để sửa dần được.
+- Không ưng các đoạn được tự sửa: `review sach.epub --undo-fixes` rồi `build sach.epub`.
 
 ## Chọn model
 
@@ -98,7 +112,7 @@ Không ưng các đoạn được tự sửa: `review sach.epub --undo-fixes` r�
 | `check [sach.epub]` | Kiểm tra model, tốc độ, ước tính thời gian |
 | `characters sach.epub -o sach.glossary.md` | Tạo bản nháp bảng nhân vật |
 | `translate sach.epub --glossary …` | Dịch |
-| `review sach.epub --glossary … [--fix]` | Chấm, xuất báo cáo; `--fix` để tự sửa |
+| `review sach.epub --glossary … [--fix]` | Chấm, xuất báo cáo; `--fix` để tự sửa, sau đó `build` (xem [Sửa theo báo cáo](#sửa-theo-báo-cáo)) |
 | `build sach.epub [--bilingual]` | Đóng gói lại từ cache, không gọi model (sau khi sửa tay, hoặc để xuất song ngữ) |
 | `prompt [--judge]` | In prompt sẽ gửi cho model |
 
