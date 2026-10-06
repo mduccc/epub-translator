@@ -718,7 +718,12 @@ Một dòng trong cache trông như sau:
    python3 epub_translate.py translate sach.epub --model gemma4:12b-it-qat --glossary glossary.md --redo chapter07 --redo chapter08
    ```
    Tên file chương xem bằng lệnh `info` hoặc ở cột "Chương" trong báo cáo.
-5. **Hoàn tác `--fix`** nếu không ưng: `python3 epub_translate.py review sach.epub --undo-fixes`, rồi `build`.
+5. **Để model tự sửa** các đoạn bị chê, rồi đóng gói lại (`--fix` chỉ ghi vào cache):
+   ```bash
+   python3 epub_translate.py review sach.epub --model gemma4:12b-it-qat --glossary glossary.md --fix --max-fixes 50
+   python3 epub_translate.py build sach.epub
+   ```
+6. **Hoàn tác `--fix`** nếu không ưng: `python3 epub_translate.py review sach.epub --undo-fixes`, rồi `build`.
 
 ---
 
